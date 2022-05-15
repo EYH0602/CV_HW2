@@ -3,6 +3,7 @@ from skimage.color import rgb2gray
 from scipy.signal import convolve2d
 from scipy.ndimage import rank_filter
 from scipy.stats import norm
+from skimage import transform
 
 
 def dist2(x, c):
@@ -231,6 +232,53 @@ def harris(im, sigma, thresh=None, radius=None):
 
         return cim, r, c
 
+
+def warp_image(image_left, H):
+    # get the height and width of the image
+    # this function will work with color images
+    # so, having third color channel is not a problem
+    h_left, w_left = image_left.shape[:2]
+
+    # we want to find where the image corners are going to land
+    # so, we create a matrix of four corner points
+    C_left = np.array([
+        [0, 0     , w_left, w_left],
+        [0, h_left, 0     , h_left],
+        [1, 1     , 1     , 1     ]
+    ])
+
+    # apply the homography to the corner points to get projected corner points
+    Cp_left = H @ C_left
+    Cp_left = Cp_left / Cp_left[-1, :]
+
+    # find the minimum height and width of the projected corners
+    w_min, h_min = Cp_left[:-1].min(axis=1).tolist()
+    # we might need to properly floor or ceil the floats to prevent
+    # the edge pixels from getting cropped but this works for our needs
+    # feel free to fix this
+    w_min, h_min = int(np.abs(w_min)), int(np.abs(h_min))
+    # what's the final warped image size that can hold the full image?
+    warped_image_shape = (h_left + h_min, w_left + w_min)
+
+    # we create a new homography that applies the translation
+    # that would be otherwise cropped by the warp function below
+    Ht = np.array([
+        [1, 0, w_min],
+        [0, 1, h_min],
+        [0, 0, 1    ]
+    ])
+    # apply the translation homography so that the image is warped
+    # but does not have a negative translation relative to origin
+    Hw = Ht @ H
+    # may not be strictly necessary but make sure that (3,3) is 1
+    Hw = Hw / Hw[-1, -1]
+
+    # create a transform for the homography
+    tform = transform.ProjectiveTransform(matrix=Hw)
+    # apply the transform with the warp function
+    warped_image = transform.warp(image_left, tform.inverse, output_shape=warped_image_shape)
+    
+    return warped_image
 
 if __name__ == '__main__':
     Gx, Gy = gen_dgauss(3.2)
